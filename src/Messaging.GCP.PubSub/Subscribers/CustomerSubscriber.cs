@@ -5,22 +5,24 @@ namespace Messaging.GCP.PubSub.Subscribers;
 public class CustomerSubscriber : BackgroundService
 {
     private readonly ILogger<CustomerSubscriber> _logger;
-    private readonly string _projectId;
+    private readonly SubscriberClient _subscriber;
 
-    public CustomerSubscriber(ILogger<CustomerSubscriber> logger, string projectId)
+    public CustomerSubscriber(ILogger<CustomerSubscriber> logger, SubscriberClient subscriber)
     {
         _logger = logger;
-        _projectId = projectId;
+        _subscriber = subscriber;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        SubscriberClient subscriber = await SubscriberClient.CreateAsync(SubscriptionName.FromProjectSubscription(_projectId, "customer"));
-        await subscriber.StartAsync((message, cancel) =>
+        while (!stoppingToken.IsCancellationRequested)
         {
-            string text = message.Data.ToStringUtf8();
-            _logger.LogInformation($"Message {message.MessageId}: {text}");
-            return Task.FromResult(SubscriberClient.Reply.Ack);
-        });
+            await _subscriber.StartAsync((message, cancel) =>
+            {
+                string text = message.Data.ToStringUtf8();
+                _logger.LogInformation($"Message {message.MessageId}: {text}");
+                return Task.FromResult(SubscriberClient.Reply.Ack);
+            });
+        }
     }
 }
