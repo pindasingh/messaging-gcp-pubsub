@@ -6,10 +6,12 @@ namespace Messaging.GCP.PubSub.Producers;
 public class Publisher : BackgroundService
 {
     private readonly ILogger<Publisher> _logger;
+    private readonly string _projectId;
 
-    public Publisher(ILogger<Publisher> logger)
+    public Publisher(ILogger<Publisher> logger, string projectId)
     {
         _logger = logger;
+        _projectId = projectId;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -17,7 +19,7 @@ public class Publisher : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var payload = "{\r\n  \"event_type\": \"payment_accepted\",\r\n  \"version\": \"1.0\",\r\n  \"payment_id\": \"payment123\",\r\n  \"order_id\": \"order789\",\r\n  \"payment_details\": {\r\n    \"amount\": 100.00,\r\n    \"currency\": \"USD\",\r\n    \"payment_method\": \"credit_card\",\r\n    \"transaction_id\": \"1234567890\"\r\n  },\r\n  \"payer\": {\r\n    \"user_id\": \"payer123\",\r\n    \"name\": \"John Doe\",\r\n    \"email\": \"john@example.com\"\r\n  },\r\n  \"payee\": {\r\n    \"user_id\": \"payee456\",\r\n    \"name\": \"Jane Smith\",\r\n    \"email\": \"jane@example.com\"\r\n  },\r\n  \"timestamp\": \"2023-10-01T12:00:00Z\"\r\n}";
-            await PublishMessagesAsync(Constants.PROJECT_ID, "apex", [payload]);
+            await PublishMessagesAsync(_projectId, "apex", [payload]);
             await Task.Delay(10000, stoppingToken);
         }
     }
