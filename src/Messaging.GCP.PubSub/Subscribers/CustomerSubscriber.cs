@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Text.Json;
-using Google.Api.Gax;
 using Google.Cloud.PubSub.V1;
 
 namespace Messaging.GCP.PubSub.Subscribers;
@@ -49,57 +48,5 @@ public class CustomerSubscriber : BackgroundService
             default:
                 throw new ArgumentException($"Unsupported content type: {contentType}");
         }
-    }
-
-    private async Task SubscribeWithConcurrencyControlAsync(string projectId, string subscriptionId)
-    {
-        SubscriptionName subscriptionName = SubscriptionName.FromProjectSubscription(projectId, subscriptionId);
-
-        SubscriberClient subscriber = await new SubscriberClientBuilder
-        {
-            SubscriptionName = subscriptionName,
-            ClientCount = 2
-        }.BuildAsync();
-
-        int count = 0;
-        Task startTask = subscriber.StartAsync((message, cancellationToken) =>
-        {
-            string text = message.Data.ToStringUtf8();
-            Console.WriteLine($"Received message: {text}");
-            Interlocked.Increment(ref count);
-            return Task.FromResult(SubscriberClient.Reply.Ack);
-        });
-    }
-
-    private async Task PullMessagesWithFlowControlAsync(string projectId, string subscriptionId, bool acknowledge)
-    {
-        SubscriptionName subscriptionName = SubscriptionName.FromProjectSubscription(projectId, subscriptionId);
-        int messageCount = 0;
-        SubscriberClient subscriber = await new SubscriberClientBuilder
-        {
-            SubscriptionName = subscriptionName,
-            Settings = new SubscriberClient.Settings
-            {
-                AckExtensionWindow = TimeSpan.FromSeconds(4),
-                AckDeadline = TimeSpan.FromSeconds(10),
-                FlowControlSettings = new FlowControlSettings(maxOutstandingElementCount: 100, maxOutstandingByteCount: 10240)
-            }
-        }.BuildAsync();
-    }
-
-    private async Task PullProtoMessagesAsync(string projectId, string subscriptionId, bool acknowledge)
-    {
-        SubscriptionName subscriptionName = SubscriptionName.FromProjectSubscription(projectId, subscriptionId);
-        int messageCount = 0;
-        SubscriberClient subscriber = await new SubscriberClientBuilder
-        {
-            SubscriptionName = subscriptionName,
-            Settings = new SubscriberClient.Settings
-            {
-                AckExtensionWindow = TimeSpan.FromSeconds(4),
-                AckDeadline = TimeSpan.FromSeconds(10),
-                FlowControlSettings = new FlowControlSettings(maxOutstandingElementCount: 100, maxOutstandingByteCount: 10240)
-            }
-        }.BuildAsync();
     }
 }
