@@ -1,7 +1,9 @@
-using Google.Api.Gax;
+using System.Text.Json;
 using Google.Cloud.PubSub.V1;
+using Google.Protobuf;
+using Messaging.GCP.PubSub.Builders;
 
-namespace Messaging.GCP.PubSub.Producers;
+namespace Messaging.GCP.PubSub.Publishers;
 
 public class TopicPublisher : BackgroundService
 {
@@ -18,123 +20,88 @@ public class TopicPublisher : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var payload = "{\r\n  \"event_type\": \"payment_accepted\",\r\n  \"version\": \"1.0\",\r\n  \"payment_id\": \"payment123\",\r\n  \"order_id\": \"order789\",\r\n  \"payment_details\": {\r\n    \"amount\": 100.00,\r\n    \"currency\": \"USD\",\r\n    \"payment_method\": \"credit_card\",\r\n    \"transaction_id\": \"1234567890\"\r\n  },\r\n  \"payer\": {\r\n    \"user_id\": \"payer123\",\r\n    \"name\": \"John Doe\",\r\n    \"email\": \"john@example.com\"\r\n  },\r\n  \"payee\": {\r\n    \"user_id\": \"payee456\",\r\n    \"name\": \"Jane Smith\",\r\n    \"email\": \"jane@example.com\"\r\n  },\r\n  \"timestamp\": \"2023-10-01T12:00:00Z\"\r\n}";
-            await PublishMessagesAsync([payload]);
-            await Task.Delay(10000, stoppingToken);
+            var paymentReference = Guid.NewGuid().ToString();
+            var customerReference = Guid.NewGuid().ToString();
+            var orderReference = Guid.NewGuid().ToString();
+
+            await PublishPaymentInitiated(paymentReference, customerReference, orderReference);
+            await PublishPaymentAuthorised(paymentReference, customerReference, orderReference);
+            await PublishPaymentGuaranteed(paymentReference, customerReference, orderReference);
         }
     }
 
-    private async Task PublishMessagesAsync(IEnumerable<string> payloads)
+    private async Task PublishPaymentInitiated(string paymentReference, string customerReference, string orderReference)
     {
-        var publishTasks = payloads.Select(async payload =>
-        {
-            string messageId = await _publisher.PublishAsync(payload);
-            _logger.LogInformation($"Published message with messageId: {messageId}");
-        });
-        await Task.WhenAll(publishTasks);
+        var initiated = new PaymentInitiatedBuilder()
+            .WithPaymentReference(paymentReference)
+            .WithCustomerReference(customerReference)
+            .WithOrderReference(orderReference)
+            .WithGateway("Stripe")
+            .WithMethod("Credit Card")
+            .WithLineItem("Premium Wireless Headphones", 199.99, 1)
+            .WithLineItem("Smart Watch", 299.99, 1)
+            .WithSubtotal(499.98)
+            .WithTax(40.00)
+            .WithShipping(15.00)
+            .WithDiscount(20.00)
+            .WithTotal(534.98)
+            .WithCurrency("USD")
+            .Build();
+
+        await PublishEvent(initiated, "application/json");
     }
 
-    private async Task<int> SubscribeWithConcurrencyControlAsync(string projectId, string subscriptionId)
+    private async Task PublishPaymentAuthorised(string paymentReference, string customerReference, string orderReference)
     {
-        SubscriptionName subscriptionName = SubscriptionName.FromProjectSubscription(projectId, subscriptionId);
+        var authorized = new PaymentAuthorizedBuilder()
+            .WithPaymentReference(paymentReference)
+            .WithCustomerReference(customerReference)
+            .WithOrderReference(orderReference)
+            .WithGateway("Stripe")
+            .WithAuthorizationCode(Guid.NewGuid().ToString())
+            .WithStatus("Authorized")
+            .Build();
 
-        SubscriberClient subscriber = await new SubscriberClientBuilder
-        {
-            SubscriptionName = subscriptionName,
-            // Normally the number of clients depends on the number of processors.
-            // Here we explicitly request 2 concurrent clients instead.
-            ClientCount = 2
-        }.BuildAsync();
-
-        int count = 0;
-        Task startTask = subscriber.StartAsync((message, cancellationToken) =>
-        {
-            string text = message.Data.ToStringUtf8();
-            Console.WriteLine($"Received message: {text}");
-            Interlocked.Increment(ref count);
-            return Task.FromResult(SubscriberClient.Reply.Ack);
-        });
-        // Run for 10 seconds.
-        await Task.Delay(10_000);
-        await subscriber.StopAsync(CancellationToken.None);
-        // Lets make sure that the start task finished successfully after the call to stop.
-        await startTask;
-        return count;
+        await PublishEvent(authorized, "application/x-protobuf");
     }
 
-    // https://cloud.google.com/pubsub/docs/flow-control
-    private async Task<int> PullMessagesWithFlowControlAsync(string projectId, string subscriptionId, bool acknowledge)
+    private async Task PublishPaymentGuaranteed(string paymentReference, string customerReference, string orderReference)
     {
-        SubscriptionName subscriptionName = SubscriptionName.FromProjectSubscription(projectId, subscriptionId);
-        int messageCount = 0;
-        SubscriberClient subscriber = await new SubscriberClientBuilder
+        var guaranteed = new PaymentGuaranteedBuilder()
+            .WithPaymentReference(paymentReference)
+            .WithCustomerReference(customerReference)
+            .WithOrderReference(orderReference)
+            .WithGateway("Stripe")
+            .WithGuaranteeCode(Guid.NewGuid().ToString())
+            .WithStatus("Guaranteed")
+            .Build();
+
+        await PublishEvent(guaranteed, "application/x-protobuf");
+    }
+
+    private async Task PublishEvent<T>(T evt, string contentType) where T : class
+    {
+        var message = new PubsubMessage
         {
-            SubscriptionName = subscriptionName,
-            Settings = new SubscriberClient.Settings
+            Attributes =
             {
-                AckExtensionWindow = TimeSpan.FromSeconds(4),
-                AckDeadline = TimeSpan.FromSeconds(10),
-                FlowControlSettings = new FlowControlSettings(maxOutstandingElementCount: 100, maxOutstandingByteCount: 10240)
-            }
-        }.BuildAsync();
-        // SubscriberClient runs your message handle function on multiple
-        // threads to maximize throughput.
-        Task startTask = subscriber.StartAsync((message, cancel) =>
-        {
-            string text = message.Data.ToStringUtf8();
-            Console.WriteLine($"Message {message.MessageId}: {text}");
-            Interlocked.Increment(ref messageCount);
-            return Task.FromResult(acknowledge ? SubscriberClient.Reply.Ack : SubscriberClient.Reply.Nack);
-        });
-        // Run for 5 seconds.
-        await Task.Delay(5000);
-        await subscriber.StopAsync(CancellationToken.None);
-        // Lets make sure that the start task finished successfully after the call to stop.
-        await startTask;
-        return messageCount;
+                { "ContentType", contentType },
+                { "MessageType", typeof(T).AssemblyQualifiedName },
+                { "OriginatingEndpoint", GetType().FullName },
+                { "TimeSent", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString() },
+            },
+            Data = SerializeEvent(evt, contentType)
+        };
+
+        await _publisher.PublishAsync(message);
+        _logger.LogInformation("Published {MessageType} as {ContentType}", typeof(T).Name, contentType);
+        Thread.Sleep(10000);
     }
 
-    private async Task<int> PullProtoMessagesAsync(string projectId, string subscriptionId, bool acknowledge)
+    private ByteString SerializeEvent<T>(T evt, string contentType) => contentType switch
     {
-        SubscriptionName subscriptionName = SubscriptionName.FromProjectSubscription(projectId, subscriptionId);
-        int messageCount = 0;
-        SubscriberClient subscriber = await new SubscriberClientBuilder
-        {
-            SubscriptionName = subscriptionName,
-            Settings = new SubscriberClient.Settings
-            {
-                AckExtensionWindow = TimeSpan.FromSeconds(4),
-                AckDeadline = TimeSpan.FromSeconds(10),
-                FlowControlSettings = new FlowControlSettings(maxOutstandingElementCount: 100, maxOutstandingByteCount: 10240)
-            }
-        }.BuildAsync();
-        // SubscriberClient runs your message handle function on multiple
-        // threads to maximize throughput.
-        Task startTask = subscriber.StartAsync((message, cancel) =>
-        {
-            string encoding = message.Attributes["googclient_schemaencoding"];
-            // Utilities.State state = null;
-            switch (encoding)
-            {
-                case "BINARY":
-                    // state = Utilities.State.Parser.ParseFrom(message.Data.ToByteArray());
-                    break;
-                case "JSON":
-                    // state = Utilities.State.Parser.ParseJson(message.Data.ToStringUtf8());
-                    break;
-                default:
-                    Console.WriteLine($"Encoding not provided in message.");
-                    break;
-            }
-            // Console.WriteLine($"Message {message.MessageId}: {state}");
-            Interlocked.Increment(ref messageCount);
-            return Task.FromResult(acknowledge ? SubscriberClient.Reply.Ack : SubscriberClient.Reply.Nack);
-        });
-        // Run for 5 seconds.
-        await Task.Delay(5000);
-        await subscriber.StopAsync(CancellationToken.None);
-        // Lets make sure that the start task finished successfully after the call to stop.
-        await startTask;
-        return messageCount;
-    }
+        "application/json" => ByteString.CopyFromUtf8(JsonSerializer.Serialize(evt)),
+        "application/x-protobuf" => ((IMessage)evt).ToByteString(),
+        _ => throw new ArgumentException($"Unsupported content type: {contentType}")
+    };
 }

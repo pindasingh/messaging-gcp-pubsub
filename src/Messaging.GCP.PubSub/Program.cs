@@ -1,12 +1,12 @@
 using Google.Cloud.PubSub.V1;
-using Messaging.GCP.PubSub.Producers;
+using Messaging.GCP.PubSub.Publishers;
 using Messaging.GCP.PubSub.Subscribers;
 
 namespace Messaging.GCP.PubSub;
 
 public class Program
 {
-    public static void Main(string[] args)
+    public static async Task Main(string[] args)
     {
         var builder = Host.CreateApplicationBuilder(args);
         
@@ -49,6 +49,6 @@ public class Program
         });
 
         var host = builder.Build();
-        host.Run();
+        await host.RunAsync();
     }
 }

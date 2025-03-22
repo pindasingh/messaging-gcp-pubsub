@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package payment.authorized;
+
+option csharp_namespace = "Messaging.GCP.PubSub.Contracts.Payment.Authorized";
+
+message PaymentAuthorized {
+  string payment_reference = 1;
+  string customer_reference = 2;
+  string order_reference = 3;
+  string gateway = 4;
+  string authorization_code = 5;
+  string status = 6;
+} 

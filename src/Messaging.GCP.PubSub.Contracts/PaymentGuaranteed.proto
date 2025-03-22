@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package payment.guaranteed;
+
+option csharp_namespace = "Messaging.GCP.PubSub.Contracts.Payment.Guaranteed";
+
+message PaymentGuaranteed {
+  string payment_reference = 1;
+  string customer_reference = 2;
+  string order_reference = 3;
+  string gateway = 4;
+  string guarantee_code = 5;
+  string status = 6;
+} 

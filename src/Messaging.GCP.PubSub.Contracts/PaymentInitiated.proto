@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package payment.initiated;
+
+option csharp_namespace = "Messaging.GCP.PubSub.Contracts.Payment.Initiated";
+
+message PaymentInitiated {
+  string payment_reference = 1;
+  string customer_reference = 2;
+  string order_reference = 3;
+  string gateway = 4;
+  string method = 5;
+  repeated LineItem line_items = 6;
+  double subtotal = 7;
+  double tax = 8;
+  double shipping = 9;
+  double discount = 10;
+  double total = 11;
+  string currency = 12;
+}
+
+message LineItem {
+  string name = 1;
+  double unit_price = 2;
+  int32 quantity = 3;
+  double subtotal = 4;
+} 
